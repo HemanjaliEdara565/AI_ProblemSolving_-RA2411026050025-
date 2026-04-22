@@ -1,221 +1,289 @@
 import streamlit as st
-import math
+from collections import deque
 import time
 
-st.set_page_config(page_title="Tic-Tac-Toe AI", page_icon="❌", layout="centered")
+st.set_page_config(page_title="Drone Delivery Path Finder", page_icon="🚁", layout="wide")
 
 # -----------------------------
-# Styling
+# Custom Styling
 # -----------------------------
 st.markdown("""
 <style>
-.main-title {
-    text-align: center;
-    font-size: 2.2rem;
+.stApp {
+    background: linear-gradient(to right, #eef2ff, #f8fafc);
+}
+.title {
+    font-size: 2.4rem;
     font-weight: 800;
+    color: #1e3a8a;
+    text-align: center;
     margin-bottom: 0.3rem;
 }
-.sub-title {
+.subtitle {
     text-align: center;
-    color: gray;
+    font-size: 1rem;
+    color: #475569;
+    margin-bottom: 1.5rem;
+}
+.section-box {
+    background: white;
+    padding: 18px;
+    border-radius: 16px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
     margin-bottom: 1rem;
 }
-.stButton > button {
-    width: 100%;
-    height: 70px;
-    font-size: 28px;
-    font-weight: bold;
+.metric-box {
+    background: #f8fafc;
+    padding: 14px;
     border-radius: 12px;
-}
-.result-box {
-    padding: 12px;
-    border-radius: 10px;
-    background-color: #f2f2f2;
-    font-weight: 600;
     text-align: center;
+    border: 1px solid #e2e8f0;
+}
+.grid-cell {
+    text-align: center;
+    font-weight: bold;
+    padding: 12px 0px;
+    border-radius: 10px;
+    margin: 2px;
+    border: 1px solid #cbd5e1;
+}
+.small-note {
+    color: #64748b;
+    font-size: 0.92rem;
 }
 </style>
 """, unsafe_allow_html=True)
 
+ROWS = 6
+COLS = 6
+
 # -----------------------------
-# Game functions
+# Helper Functions
 # -----------------------------
-def init_game():
-    if "board" not in st.session_state:
-        st.session_state.board = [" " for _ in range(9)]
-    if "game_over" not in st.session_state:
-        st.session_state.game_over = False
-    if "winner" not in st.session_state:
-        st.session_state.winner = None
-    if "current_turn" not in st.session_state:
-        st.session_state.current_turn = "X"  # user
-    if "scores" not in st.session_state:
-        st.session_state.scores = {"X": 0, "O": 0, "Draw": 0}
+def get_neighbors(node):
+    r, c = node
+    directions = [(-1,0), (1,0), (0,-1), (0,1)]
+    neighbors = []
 
-def check_winner(board):
-    win_combinations = [
-        [0,1,2], [3,4,5], [6,7,8],
-        [0,3,6], [1,4,7], [2,5,8],
-        [0,4,8], [2,4,6]
-    ]
+    for dr, dc in directions:
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < ROWS and 0 <= nc < COLS:
+            neighbors.append((nr, nc))
 
-    for combo in win_combinations:
-        a, b, c = combo
-        if board[a] == board[b] == board[c] and board[a] != " ":
-            return board[a]
+    return neighbors
 
-    if " " not in board:
-        return "Draw"
+def bfs(start, goal, obstacles):
+    queue = deque([[start]])
+    visited = set([start])
+
+    while queue:
+        path = queue.popleft()
+        node = path[-1]
+
+        if node == goal:
+            return path
+
+        for neighbor in get_neighbors(node):
+            if neighbor not in visited and neighbor not in obstacles:
+                visited.add(neighbor)
+                new_path = list(path)
+                new_path.append(neighbor)
+                queue.append(new_path)
 
     return None
 
-def available_moves(board):
-    return [i for i, spot in enumerate(board) if spot == " "]
+def dfs(start, goal, obstacles):
+    stack = [[start]]
+    visited = set([start])
 
-def minimax(board, depth, is_maximizing, alpha=-math.inf, beta=math.inf):
-    result = check_winner(board)
+    while stack:
+        path = stack.pop()
+        node = path[-1]
 
-    if result == "O":
-        return 10 - depth
-    elif result == "X":
-        return depth - 10
-    elif result == "Draw":
-        return 0
+        if node == goal:
+            return path
 
-    if is_maximizing:
-        best_score = -math.inf
-        for move in available_moves(board):
-            board[move] = "O"
-            score = minimax(board, depth + 1, False, alpha, beta)
-            board[move] = " "
-            best_score = max(best_score, score)
-            alpha = max(alpha, score)
-            if beta <= alpha:
-                break
-        return best_score
+        for neighbor in get_neighbors(node):
+            if neighbor not in visited and neighbor not in obstacles:
+                visited.add(neighbor)
+                new_path = list(path)
+                new_path.append(neighbor)
+                stack.append(new_path)
+
+    return None
+
+def parse_obstacles(text, start, goal):
+    obstacles = set()
+    lines = text.strip().split("\n")
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            r, c = map(int, line.split(","))
+            if 0 <= r < ROWS and 0 <= c < COLS and (r, c) != start and (r, c) != goal:
+                obstacles.add((r, c))
+        except:
+            pass
+
+    return obstacles
+
+def get_cell_style(node, start, goal, obstacles, path):
+    if node == start:
+        return "S", "#86efac"
+    elif node == goal:
+        return "G", "#fde68a"
+    elif node in obstacles:
+        return "X", "#fca5a5"
+    elif path and node in path:
+        return "*", "#93c5fd"
     else:
-        best_score = math.inf
-        for move in available_moves(board):
-            board[move] = "X"
-            score = minimax(board, depth + 1, True, alpha, beta)
-            board[move] = " "
-            best_score = min(best_score, score)
-            beta = min(beta, score)
-            if beta <= alpha:
-                break
-        return best_score
-
-def best_move(board):
-    best_score = -math.inf
-    move = None
-
-    for i in available_moves(board):
-        board[i] = "O"
-        score = minimax(board, 0, False)
-        board[i] = " "
-        if score > best_score:
-            best_score = score
-            move = i
-
-    return move
-
-def ai_turn():
-    if not st.session_state.game_over:
-        move = best_move(st.session_state.board)
-        if move is not None:
-            time.sleep(0.4)
-            st.session_state.board[move] = "O"
-            result = check_winner(st.session_state.board)
-            if result:
-                st.session_state.game_over = True
-                st.session_state.winner = result
-                if result in ["X", "O"]:
-                    st.session_state.scores[result] += 1
-                else:
-                    st.session_state.scores["Draw"] += 1
-            else:
-                st.session_state.current_turn = "X"
-
-def player_move(index):
-    if st.session_state.board[index] == " " and not st.session_state.game_over and st.session_state.current_turn == "X":
-        st.session_state.board[index] = "X"
-        result = check_winner(st.session_state.board)
-
-        if result:
-            st.session_state.game_over = True
-            st.session_state.winner = result
-            if result in ["X", "O"]:
-                st.session_state.scores[result] += 1
-            else:
-                st.session_state.scores["Draw"] += 1
-        else:
-            st.session_state.current_turn = "O"
-            ai_turn()
-
-def reset_board():
-    st.session_state.board = [" " for _ in range(9)]
-    st.session_state.game_over = False
-    st.session_state.winner = None
-    st.session_state.current_turn = "X"
-
-def reset_all():
-    st.session_state.board = [" " for _ in range(9)]
-    st.session_state.game_over = False
-    st.session_state.winner = None
-    st.session_state.current_turn = "X"
-    st.session_state.scores = {"X": 0, "O": 0, "Draw": 0}
+        return ".", "#ffffff"
 
 # -----------------------------
-# UI
+# App Title
 # -----------------------------
-init_game()
+st.markdown('<div class="title">🚁 Drone Delivery Path Finder</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Find an optimal or valid route from source to destination using BFS or DFS</div>', unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">Interactive Game AI - Tic-Tac-Toe</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">User (X) vs AI (O) using Minimax Algorithm</div>', unsafe_allow_html=True)
+# -----------------------------
+# Fixed Start and Goal
+# -----------------------------
+start = (0, 0)
+goal = (5, 5)
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Player (X)", st.session_state.scores["X"])
-col2.metric("AI (O)", st.session_state.scores["O"])
-col3.metric("Draws", st.session_state.scores["Draw"])
+default_obstacles = "1,1\n1,2\n2,2\n3,4"
 
-st.write("### Game Board")
+# -----------------------------
+# Layout
+# -----------------------------
+left, right = st.columns([1, 1.4])
 
-for row in range(3):
-    cols = st.columns(3)
-    for col in range(3):
-        idx = row * 3 + col
-        with cols[col]:
-            st.button(
-                st.session_state.board[idx],
-                key=f"cell_{idx}",
-                on_click=player_move,
-                args=(idx,)
-            )
+with left:
+    st.markdown('<div class="section-box">', unsafe_allow_html=True)
+    st.subheader("Input Configuration")
 
-st.write("")
+    algorithm = st.selectbox("Choose Algorithm", ["BFS", "DFS"])
 
-if st.session_state.game_over:
-    if st.session_state.winner == "Draw":
-        st.markdown('<div class="result-box">Game Over! It is a Draw.</div>', unsafe_allow_html=True)
+    obstacle_text = st.text_area(
+        "Enter obstacles (row,col) one per line",
+        value=default_obstacles,
+        height=180
+    )
+
+    st.markdown('<p class="small-note">Example: 1,1 means row 1 and column 1 is blocked.</p>', unsafe_allow_html=True)
+
+    run = st.button("Find Path", use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with right:
+    st.markdown('<div class="section-box">', unsafe_allow_html=True)
+    st.subheader("Project Information")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown('<div class="metric-box"><b>Start</b><br>(0, 0)</div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="metric-box"><b>Goal</b><br>(5, 5)</div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(f'<div class="metric-box"><b>Grid</b><br>{ROWS} x {COLS}</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# -----------------------------
+# Processing
+# -----------------------------
+path = None
+exec_time = None
+obstacles = parse_obstacles(obstacle_text, start, goal)
+
+if run:
+    t1 = time.time()
+
+    if algorithm == "BFS":
+        path = bfs(start, goal, obstacles)
     else:
-        winner_text = "Player Wins!" if st.session_state.winner == "X" else "AI Wins!"
-        st.markdown(f'<div class="result-box">{winner_text}</div>', unsafe_allow_html=True)
-else:
-    turn_text = "Your Turn" if st.session_state.current_turn == "X" else "AI Thinking..."
-    st.info(turn_text)
+        path = dfs(start, goal, obstacles)
 
-c1, c2 = st.columns(2)
-with c1:
-    st.button("New Round", on_click=reset_board, use_container_width=True)
-with c2:
-    st.button("Reset Score", on_click=reset_all, use_container_width=True)
+    t2 = time.time()
+    exec_time = round((t2 - t1) * 1000, 2)
 
-st.write("---")
-st.write("### Algorithms Used")
-st.write("- Minimax Algorithm")
-st.write("- Alpha-Beta Pruning")
-st.write("### Features")
-st.write("- User vs AI gameplay")
-st.write("- AI always chooses the best move")
-st.write("- Score tracking")
-st.write("- Interactive Streamlit web interface")
+# -----------------------------
+# Results
+# -----------------------------
+st.markdown('<div class="section-box">', unsafe_allow_html=True)
+st.subheader("Grid Visualization")
+
+for r in range(ROWS):
+    cols = st.columns(COLS)
+    for c in range(COLS):
+        node = (r, c)
+        symbol, color = get_cell_style(node, start, goal, obstacles, path)
+        cols[c].markdown(
+            f"<div class='grid-cell' style='background-color:{color};'>{symbol}</div>",
+            unsafe_allow_html=True
+        )
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# -----------------------------
+# Output Section
+# -----------------------------
+if run:
+    st.markdown('<div class="section-box">', unsafe_allow_html=True)
+    st.subheader("Output")
+
+    if path:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.success(f"Algorithm Used: {algorithm}")
+        with c2:
+            st.info(f"Execution Time: {exec_time} ms")
+        with c3:
+            st.warning(f"Path Length: {len(path)}")
+
+        st.write("### Path Coordinates")
+        st.code(str(path))
+
+        st.write("### Path Explanation")
+        st.write(
+            f"The drone starts at {start}, avoids the blocked cells, and reaches the goal {goal} "
+            f"using the {algorithm} algorithm. The discovered route is shown in the grid using `*` symbols."
+        )
+    else:
+        st.error("No valid path found. Please change the obstacle positions.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# -----------------------------
+# Legend and Theory
+# -----------------------------
+l1, l2 = st.columns(2)
+
+with l1:
+    st.markdown('<div class="section-box">', unsafe_allow_html=True)
+    st.subheader("Legend")
+    st.write("**S** → Start Point")
+    st.write("**G** → Goal Point")
+    st.write("**X** → Obstacle")
+    st.write("**\\*** → Final Path")
+    st.write("**.** → Empty Cell")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with l2:
+    st.markdown('<div class="section-box">', unsafe_allow_html=True)
+    st.subheader("Algorithms Used")
+    st.write("**BFS (Breadth First Search):** Finds the shortest path in an unweighted grid.")
+    st.write("**DFS (Depth First Search):** Explores deeply first and finds a valid path, but not always the shortest.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+st.markdown('<div class="section-box">', unsafe_allow_html=True)
+st.subheader("Project Features")
+st.write("- Clean interactive user interface")
+st.write("- BFS and DFS based path finding")
+st.write("- Obstacle-based route planning")
+st.write("- Execution time measurement")
+st.write("- Path length and path coordinate display")
+st.write("- Grid visualization for easy understanding")
+st.markdown('</div>', unsafe_allow_html=True)
